@@ -1,12 +1,21 @@
 import configparser
+from datetime import datetime
 import os
 import shlex
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+
 from PyQt5.QtCore import QPoint, QSize, Qt, QTimer
-from PyQt5.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPixmap
+from PyQt5.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QIcon,
+    QLinearGradient,
+    QPainter,
+    QPixmap,
+)
 from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -15,6 +24,8 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMdiArea,
+    QMdiSubWindow,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -22,7 +33,6 @@ from PyQt5.QtWidgets import (
 
 
 def buscar_aplicativos():
-  """Lê os arquivos .desktop do Linux para listar os apps instalados."""
   caminhos = [
       '/usr/share/applications/',
       os.path.expanduser('~/.local/share/applications/'),
@@ -56,7 +66,6 @@ def buscar_aplicativos():
 
 
 class JanelaEnergia(QFrame):
-  """Janela de confirmação de Energia compatível com Linux e Termux."""
 
   def __init__(self, parent=None):
     super().__init__(parent)
@@ -72,7 +81,7 @@ class JanelaEnergia(QFrame):
 
     self.setStyleSheet("""
             QFrame {
-                background-color: rgba(20, 20, 32, 240);
+                background-color: rgba(20, 20, 32, 245);
                 border: 1px solid rgba(255, 255, 255, 50);
                 border-radius: 20px;
             }
@@ -84,9 +93,7 @@ class JanelaEnergia(QFrame):
                 font-weight: bold;
                 border: 1px solid rgba(255, 255, 255, 30);
             }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 40);
-            }
+            QPushButton:hover { background-color: rgba(255, 255, 255, 40); }
         """)
 
     layout = QVBoxLayout(self)
@@ -139,8 +146,7 @@ class JanelaEnergia(QFrame):
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
-class JanelaApp(QFrame):
-  """Janela com movimentação suave e fluida estilo Ubuntu/Linux."""
+class JanelaAppInterna(QMdiSubWindow):
 
   def __init__(self, titulo, comando, parent=None):
     super().__init__(parent)
@@ -148,174 +154,47 @@ class JanelaApp(QFrame):
     self.comando = comando
     self.processo = None
 
-    # Controle de arraste e estados
-    self.arrastando = False
-    self.drag_position = QPoint()
-    self.maximizada = False
-    self.geometria_antiga = None
+    self.setWindowTitle(titulo)
+    self.resize(650, 420)
 
-    self.init_janela()
-    self.executar_processo()
+    self.widget_conteudo = QWidget()
+    self.setWidget(self.widget_conteudo)
 
-  def init_janela(self):
-    self.resize(520, 340)
-    self.move(120, 70)
-
-    self.setStyleSheet("""
-            QFrame#JanelaAppFrame {
-                background-color: rgba(26, 27, 38, 240);
-                border: 1px solid rgba(255, 255, 255, 40);
-                border-radius: 12px;
-            }
-        """)
-    self.setObjectName('JanelaAppFrame')
-
-    layout_principal = QVBoxLayout(self)
-    layout_principal.setContentsMargins(8, 6, 8, 8)
-
-    # --- BARRA DE TÍTULO ---
-    self.barra_titulo = QFrame(self)
-    self.barra_titulo.setFixedHeight(36)
-    self.barra_titulo.setStyleSheet("""
-            QFrame {
-                background-color: rgba(255, 255, 255, 10);
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                border: none;
-            }
-        """)
-
-    # Habilita o rastreamento dos eventos do mouse na barra de título
-    self.barra_titulo.mousePressEvent = self.iniciar_arraste
-    self.barra_titulo.mouseMoveEvent = self.mover_janela
-    self.barra_titulo.mouseReleaseEvent = self.parar_arraste
-
-    layout_barra = QHBoxLayout(self.barra_titulo)
-    layout_barra.setContentsMargins(10, 0, 5, 0)
-
-    lbl_titulo = QLabel(self.titulo_app)
-    lbl_titulo.setFont(QFont('Ubuntu', 10, QFont.Weight.Bold))
-    lbl_titulo.setStyleSheet('color: #f1f5f9; background: transparent;')
-    layout_barra.addWidget(lbl_titulo)
-
-    layout_barra.addStretch()
-
-    # Botão Maximizar / Restaurar
-    self.btn_maximizar = QPushButton('🗖')
-    self.btn_maximizar.setFixedSize(26, 26)
-    self.btn_maximizar.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 15);
+    self.widget_conteudo.setStyleSheet("""
+            QWidget {
+                background-color: #1a1b26;
                 color: white;
-                border-radius: 13px;
-                font-size: 11px;
-                border: none;
+                border-radius: 8px;
             }
-            QPushButton:hover { background-color: rgba(255, 255, 255, 40); }
         """)
-    self.btn_maximizar.clicked.connect(self.toggle_maximizar)
-    layout_barra.addWidget(self.btn_maximizar)
 
-    # Botão Fechar
-    btn_fechar = QPushButton('✕')
-    btn_fechar.setFixedSize(26, 26)
-    btn_fechar.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(239, 68, 68, 0.8);
-                color: white;
-                border-radius: 13px;
-                font-weight: bold;
-                font-size: 11px;
-                border: none;
-            }
-            QPushButton:hover { background-color: rgba(220, 38, 38, 1.0); }
-        """)
-    btn_fechar.clicked.connect(self.fechar_janela)
-    layout_barra.addWidget(btn_fechar)
-
-    layout_principal.addWidget(self.barra_titulo)
-
-    # --- CORPO DA JANELA ---
-    self.corpo = QFrame()
-    self.corpo.setStyleSheet(
-        'background: rgba(0, 0, 0, 70); border-radius: 8px; border: none;'
-    )
-    layout_corpo = QVBoxLayout(self.corpo)
+    layout = QVBoxLayout(self.widget_conteudo)
 
     self.lbl_status = QLabel(
-        f'🚀 App: {self.titulo_app}\n\nComando: {self.comando}'
+        f'🚀 Executando: {self.titulo_app}\n\nComando: {self.comando}'
     )
     self.lbl_status.setAlignment(Qt.AlignCenter)
     self.lbl_status.setStyleSheet(
         'color: #cbd5e1; font-size: 13px; background: transparent;'
     )
-    layout_corpo.addWidget(self.lbl_status)
+    layout.addWidget(self.lbl_status)
 
-    layout_principal.addWidget(self.corpo)
-
-  # --- LÓGICA DE ARRASTE FLUIDO ---
-  def iniciar_arraste(self, event):
-    if event.button() == Qt.LeftButton and not self.maximizada:
-      self.arrastando = True
-      self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
-      self.raise_()
-      event.accept()
-
-  def mover_janela(self, event):
-    if self.arrastando and (event.buttons() & Qt.LeftButton):
-      nova_posicao = event.globalPos() - self.drag_position
-
-      if self.parent():
-        parent_rect = self.parent().rect()
-        max_x = parent_rect.width() - self.width()
-        max_y = parent_rect.height() - self.height() - 60
-
-        x = max(0, min(nova_posicao.x(), max_x))
-        y = max(0, min(nova_posicao.y(), max_y))
-        self.move(x, y)
-      else:
-        self.move(nova_posicao)
-
-      event.accept()
-
-  def parar_arraste(self, event):
-    self.arrastando = False
-
-  def toggle_maximizar(self):
-    """Alterna entre tela cheia e o tamanho normal."""
-    if not self.maximizada:
-      self.geometria_antiga = self.geometry()
-      if self.parent():
-        parent_rect = self.parent().rect()
-        self.setGeometry(
-            parent_rect.x() + 8,
-            parent_rect.y() + 8,
-            parent_rect.width() - 16,
-            parent_rect.height() - 72,
-        )
-      self.btn_maximizar.setText('🗗')
-      self.maximizada = True
-    else:
-      if self.geometria_antiga:
-        self.setGeometry(self.geometria_antiga)
-      self.btn_maximizar.setText('🗖')
-      self.maximizada = False
+    self.executar_processo()
 
   def executar_processo(self):
     try:
       args = shlex.split(self.comando)
       self.processo = subprocess.Popen(args)
     except Exception as e:
-      self.lbl_status.setText(f'⚠️ Erro ao iniciar.\nDetalhe: {e}')
+      self.lbl_status.setText(f'⚠️ Erro ao iniciar programa.\nDetalhe: {e}')
 
-  def fechar_janela(self):
+  def closeEvent(self, event):
     if self.processo and self.processo.poll() is None:
       try:
         self.processo.terminate()
       except Exception:
         pass
-    self.close()
-    self.deleteLater()
+    event.accept()
 
 
 class InterfaceDesktop(QWidget):
@@ -327,44 +206,47 @@ class InterfaceDesktop(QWidget):
     self.janela_energia = None
     self.initUI()
 
-  def criar_wallpaper_padrao(self):
-    pix = QPixmap(self.width(), self.height())
-    painter = QPainter(pix)
-    gradient = QLinearGradient(0, 0, self.width(), self.height())
-    gradient.setColorAt(0.0, QColor(24, 28, 46))
-    gradient.setColorAt(0.5, QColor(45, 30, 62))
-    gradient.setColorAt(1.0, QColor(18, 18, 28))
-    painter.setBrush(gradient)
-    painter.drawRect(0, 0, self.width(), self.height())
-    painter.end()
-    return pix
-
   def paintEvent(self, event):
     painter = QPainter(self)
+
     if self.pixmap_wallpaper and not self.pixmap_wallpaper.isNull():
-      scaled_pixmap = self.pixmap_wallpaper.scaled(
+      scaled = self.pixmap_wallpaper.scaled(
           self.size(),
           Qt.KeepAspectRatioByExpanding,
           Qt.SmoothTransformation,
       )
-      painter.drawPixmap(0, 0, scaled_pixmap)
+      painter.drawPixmap(0, 0, scaled)
     else:
-      painter.drawPixmap(0, 0, self.criar_wallpaper_padrao())
+      # Gradiente moderno do Boss_OS
+      gradient = QLinearGradient(0, 0, self.width(), self.height())
+      gradient.setColorAt(0.0, QColor(24, 28, 46))
+      gradient.setColorAt(0.5, QColor(45, 30, 62))
+      gradient.setColorAt(1.0, QColor(18, 18, 28))
+      painter.setBrush(gradient)
+      painter.drawRect(0, 0, self.width(), self.height())
 
   def initUI(self):
-    self.setWindowFlags(
-        Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-    )
-    self.resize(800, 500)
+    self.setWindowFlags(Qt.FramelessWindowHint)
 
     self.main_layout = QVBoxLayout(self)
-    self.main_layout.setContentsMargins(15, 15, 15, 15)
+    self.main_layout.setContentsMargins(0, 0, 0, 0)
+    self.main_layout.setSpacing(0)
 
-    # --- LANÇADOR DE APLICATIVOS ---
+    # --- ÁREA DE TRABALHO MDI (TRANSPARÊNCIA CORRIGIDA) ---
+    self.area_trabalho = QMdiArea()
+    self.area_trabalho.setBackground(QBrush(QColor(0, 0, 0, 0)))
+    self.area_trabalho.viewport().setStyleSheet('background: transparent;')
+    self.area_trabalho.setStyleSheet(
+        'QMdiArea { background: transparent; border: none; }'
+    )
+    self.main_layout.addWidget(self.area_trabalho)
+
+    # --- MENU INICIAR ---
     self.menu_iniciar = QFrame(self)
+    self.menu_iniciar.setFixedSize(320, 420)
     self.menu_iniciar.setStyleSheet("""
             QFrame {
-                background-color: rgba(20, 20, 30, 230);
+                background-color: rgba(20, 20, 30, 245);
                 border: 1px solid rgba(255, 255, 255, 40);
                 border-radius: 20px;
             }
@@ -381,7 +263,7 @@ class InterfaceDesktop(QWidget):
 
     cabecalho.addStretch()
 
-    self.btn_wallpaper = QPushButton('🖼️ Trocar Fundo')
+    self.btn_wallpaper = QPushButton('🖼️ Fundo')
     self.btn_wallpaper.setStyleSheet("""
             QPushButton {
                 background-color: rgba(255, 255, 255, 25);
@@ -391,9 +273,7 @@ class InterfaceDesktop(QWidget):
                 font-size: 11px;
                 border: 1px solid rgba(255, 255, 255, 30);
             }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 60);
-            }
+            QPushButton:hover { background-color: rgba(255, 255, 255, 60); }
         """)
     self.btn_wallpaper.clicked.connect(self.selecionar_wallpaper)
     cabecalho.addWidget(self.btn_wallpaper)
@@ -411,18 +291,19 @@ class InterfaceDesktop(QWidget):
     self.menu_layout.addWidget(self.lista_apps)
 
     self.menu_iniciar.hide()
-    self.main_layout.addWidget(self.menu_iniciar)
 
-    self.main_layout.addStretch()
+    # --- BARRA DE TAREFAS / DOCK INFERIOR ---
+    container_barra = QWidget(self)
+    container_layout = QHBoxLayout(container_barra)
+    container_layout.setContentsMargins(15, 0, 15, 12)
 
-    # --- BARRA DE STATUS (DOCK) ---
-    self.barra_status = QFrame(self)
-    self.barra_status.setFixedHeight(55)
+    self.barra_status = QFrame(container_barra)
+    self.barra_status.setFixedHeight(58)
     self.barra_status.setStyleSheet("""
             QFrame {
-                background-color: rgba(15, 15, 25, 190);
-                border: 1px solid rgba(255, 255, 255, 50);
-                border-radius: 25px;
+                background-color: rgba(15, 15, 25, 220);
+                border: 1px solid rgba(255, 255, 255, 40);
+                border-radius: 28px;
             }
         """)
 
@@ -433,25 +314,24 @@ class InterfaceDesktop(QWidget):
     self.btn_iniciar.setIcon(QIcon.fromTheme('start-here'))
     self.btn_iniciar.setStyleSheet("""
             QPushButton {
-                background-color: rgba(139, 92, 246, 0.4);
+                background-color: rgba(139, 92, 246, 0.5);
                 color: white;
-                border-radius: 15px;
-                padding: 6px 15px;
+                border-radius: 16px;
+                padding: 6px 16px;
                 font-weight: bold;
                 border: 1px solid rgba(255, 255, 255, 40);
             }
-            QPushButton:hover { background-color: rgba(139, 92, 246, 0.7); }
+            QPushButton:hover { background-color: rgba(139, 92, 246, 0.8); }
         """)
     self.btn_iniciar.clicked.connect(self.toggle_menu)
     layout_barra.addWidget(self.btn_iniciar)
 
     layout_barra.addStretch()
 
-    # Relógio
     self.relogio = QLabel()
     self.relogio.setStyleSheet(
         'color: white; font-weight: bold; border: none; background:'
-        ' transparent; font-size: 12px; padding-right: 10px;'
+        ' transparent; font-size: 13px; padding-right: 10px;'
     )
     layout_barra.addWidget(self.relogio)
 
@@ -460,29 +340,30 @@ class InterfaceDesktop(QWidget):
     self.timer_relogio.start(1000)
     self.atualizar_relogio()
 
-    # --- BOTÃO DE ENERGIA (POWER) ---
     self.btn_energia = QPushButton('⏻')
     self.btn_energia.setFixedSize(36, 36)
     self.btn_energia.setStyleSheet("""
             QPushButton {
-                background-color: rgba(239, 68, 68, 0.3);
+                background-color: rgba(239, 68, 68, 0.4);
                 color: #ef4444;
                 border-radius: 18px;
                 font-size: 16px;
                 font-weight: bold;
                 border: 1px solid rgba(239, 68, 68, 0.5);
             }
-            QPushButton:hover {
-                background-color: rgba(239, 68, 68, 0.8);
-                color: white;
-            }
+            QPushButton:hover { background-color: rgba(239, 68, 68, 0.9); color: white; }
         """)
     self.btn_energia.clicked.connect(self.abrir_menu_energia)
     layout_barra.addWidget(self.btn_energia)
 
-    self.main_layout.addWidget(self.barra_status)
+    container_layout.addWidget(self.barra_status)
+    self.main_layout.addWidget(container_barra)
 
     self.carregar_apps()
+
+  def resizeEvent(self, event):
+    super().resizeEvent(event)
+    self.menu_iniciar.move(20, self.height() - 500)
 
   def toggle_menu(self):
     if self.menu_aberto:
@@ -520,9 +401,9 @@ class InterfaceDesktop(QWidget):
 
     if not self.apps_dados:
       item = QListWidgetItem(
-          QIcon.fromTheme('utilities-terminal'), 'Termux Terminal'
+          QIcon.fromTheme('utilities-terminal'), 'Xfce Terminal'
       )
-      item.setData(Qt.UserRole, 'termux')
+      item.setData(Qt.UserRole, 'xfce4-terminal')
       self.lista_apps.addItem(item)
     else:
       for app in self.apps_dados:
@@ -536,14 +417,14 @@ class InterfaceDesktop(QWidget):
 
     self.toggle_menu()
 
-    janela = JanelaApp(nome_app, comando, parent=self)
+    janela = JanelaAppInterna(nome_app, comando, parent=self)
+    self.area_trabalho.addSubWindow(janela)
     janela.show()
-    janela.raise_()
 
 
 if __name__ == '__main__':
   app = QApplication(sys.argv)
   window = InterfaceDesktop()
-  window.show()
+  window.showMaximized()
   sys.exit(app.exec_())
 
